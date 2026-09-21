@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this repository in your research, please cite the thesis/project code."
+title: "EV-VR Neuroadaptive AI"
+authors:
+  - family-names: Saumya
+    given-names: Saumya
+    email: ""
+version: 1.0.0
+date-released: 2026-09-21
+license: MIT
+repository-code: ""
