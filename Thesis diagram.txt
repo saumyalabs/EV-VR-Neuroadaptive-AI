@@ -1,0 +1,134 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│                    🎮  VR ENVIRONMENT (BeamNG + Varjo)                      │
+│                                                                             │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│   │  15-Station  │  │  3 Kiosks    │  │  Coupons     │  │  RAG AI      │   │
+│   │  EV Route    │  │  per Station │  │  (Real/Deep) │  │  Assistant   │   │
+│   └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  Steering Wheel + Pedal Rig  |  Physical Driving Controls           │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │
+                                   │  Synchronized Capture
+                                   │  (Shared VR Unix-ms Clock)
+                                   │
+        ┌──────────────────────────┼──────────────────────────┐
+        │                          │                          │
+        ▼                          ▼                          ▼
+┌───────────────┐          ┌───────────────┐          ┌───────────────┐
+│  🧠 EEG/PPG   │          │  👁️ EYE-TRACK │          │  🎮 VR LOGS   │
+│  Muse S       │          │  Varjo Headset│          │  Interaction  │
+│  (Athena)     │          │               │          │  Telemetry    │
+│               │          │               │          │               │
+│ • TP9, AF7    │          │ • Gaze (x,y)  │          │ • UI events   │
+│ • AF8, TP10   │          │ • Pupil size  │          │ • Kiosk picks │
+│ • PPG (64 Hz) │          │ • Blink       │          │ • Charge amt  │
+│ • Optical     │          │ • ~200 Hz     │          │ • Points      │
+│ • 256 Hz EEG  │          │               │          │ • AI usage    │
+└───────┬───────┘          └───────┬───────┘          └───────┬───────┘
+        │                          │                          │
+        │                          │                          │
+        ▼                          ▼                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│                      ⚙️  PREPROCESSING PIPELINES                            │
+│                                                                             │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐  ┌──────────────┐│
+│  │   EEG PIPELINE          │  │   HRV PIPELINE          │  │ EYE-TRACKING ││
+│  │                         │  │                         │  │  PIPELINE    ││
+│  │ 1. Artifact detection   │  │ 1. PPG peak detection   │  │              ││
+│  │    (robust z-score)     │  │ 2. RR interval extract  │  │ 1. Gaze→AOI  ││
+│  │ 2. 1–40 Hz band-pass    │  │ 3. RR validity check    │  │    mapping   ││
+│  │ 3. 50 Hz notch filter   │  │ 4. Time-domain metrics  │  │ 2. Fixation  ││
+│  │ 4. Station-window align │  │ 5. Freq-domain metrics  │  │    detection ││
+│  │ 5. Welch PSD bands      │  │ 6. Non-linear metrics   │  │ 3. 12 DVs    ││
+│  │ 6. Cognitive state      │  │ 7. ⚠️ LF/HF AUDIT       │  │ 4. AOI dwell ││
+│  │    scores (stress,      │  │    (de-prioritized)     │  │    shares    ││
+│  │    load, attention)     │  │                         │  │              ││
+│  │ 7. 128-D embeddings     │  │ (Session-level only)    │  │ 128-D emb.   ││
+│  └───────────┬─────────────┘  └───────────┬─────────────┘  └──────┬───────┘│
+│              │                            │                        │        │
+└──────────────┼────────────────────────────┼────────────────────────┼────────┘
+               │                            │                        │
+               │                            │                        │
+               ▼                            ▼                        ▼
+        ┌─────────────────────────────────────────────────────────────────┐
+        │                                                                 │
+        │              🔗  SYNCHRONIZATION & INTEGRATION                  │
+        │                                                                 │
+        │   ┌───────────────────────────────────────────────────────┐    │
+        │   │  Station-level join: (participant_id, station_id)     │    │
+        │   │  → EEG + Eye-Tracking merged                          │    │
+        │   │  → HRV attached as SESSION-LEVEL COVARIATE            │    │
+        │   └───────────────────────────────────────────────────────┘    │
+        │                                                                 │
+        │   Output: Station-level master table (405 rows)                │
+        │           Session-level master table (40 participants)         │
+        │                                                                 │
+        └──────────────────────────────┬──────────────────────────────────┘
+                                       │
+                                       ▼
+        ┌─────────────────────────────────────────────────────────────────┐
+        │                                                                 │
+        │              🤖  MACHINE LEARNING MODELS                        │
+        │                                                                 │
+        │   ⚠️  Participant-level splits (leave-subjects-out) ONLY        │
+        │   ⚠️  Leakage fields removed                                    │
+        │   ⚠️  F1 as headline metric (class imbalance)                   │
+        │                                                                 │
+        │   ┌─────────────────┐  ┌─────────────────┐  ┌───────────────┐  │
+        │   │  EEG MODEL      │  │  GAZE +         │  │  FUSION       │  │
+        │   │                 │  │  INTERACTION    │  │  MODEL        │  │
+        │   │  Logistic       │  │  MODEL          │  │               │  │
+        │   │  Regression     │  │                 │  │  256-D concat │  │
+        │   │  (per target)   │  │  ExtraTrees     │  │  (128+128)    │  │
+        │   │                 │  │                 │  │               │  │
+        │   │  128-D EEG      │  │  128-D gaze     │  │  • ExtraTrees │  │
+        │   │  embeddings     │  │  embeddings     │  │  • Multi-task │  │
+        │   │                 │  │                 │  │  • LSTM       │  │
+        │   │                 │  │                 │  │  • Attn-LSTM  │  │
+        │   │                 │  │                 │  │  • Transformer│  │
+        │   └────────┬────────┘  └────────┬────────┘  └───────┬───────┘  │
+        │            │                    │                    │          │
+        └────────────┼────────────────────┼────────────────────┼──────────┘
+                     │                    │                    │
+                     └────────────────────┼────────────────────┘
+                                          │
+                                          ▼
+        ┌─────────────────────────────────────────────────────────────────┐
+        │                                                                 │
+        │              🎯  PREDICTIONS (5 Behavioral Targets)             │
+        │                                                                 │
+        │   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐  │
+        │   │  unsafe_choice   │  │  ai_used         │  │ ai_followed  │  │
+        │   │                  │  │                  │  │              │  │
+        │   │  F1 ≈ 0.69–0.78  │  │  F1 ≈ 0.57       │  │ F1 ≈ 0.50    │  │
+        │   │  ✅ Most learnable│  │                  │  │              │  │
+        │   └──────────────────┘  └──────────────────┘  └──────────────┘  │
+        │                                                                 │
+        │   ┌──────────────────────────┐  ┌──────────────────────────┐   │
+        │   │  ai_usage_increased      │  │  ai_usage_decreased      │   │
+        │   │  F1 ≈ 0.36 (unstable)    │  │  F1 ≈ 0.35 (unstable)    │   │
+        │   │  ⚠️ Severe class imbalance│  │  ⚠️ Severe class imbalance│   │
+        │   └──────────────────────────┘  └──────────────────────────┘   │
+        │                                                                 │
+        │   Best overall model: ExtraTrees (balanced across targets)      │
+        │                                                                 │
+        └──────────────────────────────┬──────────────────────────────────┘
+                                       │
+                                       ▼
+        ┌─────────────────────────────────────────────────────────────────┐
+        │                                                                 │
+        │              💡  DOWNSTREAM APPLICATIONS                        │
+        │                                                                 │
+        │   • Real-time risk flagging (gaze + EEG)                        │
+        │   • Adaptive VR interfaces (surface AI when load is high)       │
+        │   • Safer EV-kiosk UI design (coupon authenticity cues)         │
+        │   • Explainable AI recommendations                              │
+        │   • Human-in-the-loop security settings                         │
+        │                                                                 │
+        └─────────────────────────────────────────────────────────────────┘
